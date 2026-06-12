@@ -99,6 +99,7 @@ class NowcastData:
     blocks: pd.DataFrame = None
     pub_lag: pd.Series = None
     transforms: pd.Series = None
+    groups: pd.Series = None
 
     # ------------------------------------------------------------------ setup
     def __post_init__(self):
@@ -145,6 +146,15 @@ class NowcastData:
 
         if self.transforms is None:
             self.transforms = pd.Series("none", index=names)
+
+        # variable groups (e.g. "Surveys", "Industry") used for news
+        # aggregation, the heatmap, and the range of alternative models;
+        # distinct from factor *blocks*
+        if self.groups is None:
+            self.groups = pd.Series("All", index=names)
+        else:
+            self.groups = self.groups.reindex(names).fillna("Other").astype(str)
+        self.groups[self.target] = "Target"
 
     # ----------------------------------------------------------------- access
     @property
@@ -212,6 +222,7 @@ class NowcastData:
             blocks=self.blocks.copy(),
             pub_lag=self.pub_lag.copy(),
             transforms=self.transforms.copy(),
+            groups=self.groups.copy(),
         )
 
     def summary(self) -> pd.DataFrame:
@@ -301,6 +312,7 @@ def build_data(
     transforms = pd.Series("pch", index=names)
     pub_lag = pd.Series(0, index=names, dtype=int)
     blocks = None
+    groups = None
     if spec is not None:
         spec = spec.copy()
         if "series" in spec.columns:
@@ -315,6 +327,8 @@ def build_data(
         if block_cols:
             blocks = spec[block_cols].copy()
             blocks.columns = [c.split("_", 1)[1] if "_" in c else c for c in block_cols]
+        if "group" in spec.columns:
+            groups = spec["group"].dropna().astype(str)
 
     # --- transform
     tm = pd.DataFrame({
@@ -329,7 +343,7 @@ def build_data(
 
     return NowcastData(
         monthly=tm, quarterly=tq, target=target,
-        blocks=blocks, pub_lag=pub_lag, transforms=transforms,
+        blocks=blocks, pub_lag=pub_lag, transforms=transforms, groups=groups,
     )
 
 
@@ -398,6 +412,8 @@ def make_example_dataset(
             "pub_lag": 1 if is_survey else 2,
             "block_Global": 1,
             "block_Soft": int(is_survey),
+            "group": "Surveys" if is_survey else
+                     ("Industry" if i < n_monthly // 3 else "Trade"),
         })
     raw_monthly = pd.DataFrame(raw_m, index=months.astype(str))
 
@@ -410,7 +426,7 @@ def make_example_dataset(
     raw_quarterly = pd.DataFrame({target: gdp_level.values}, index=quarters.astype(str))
     spec_rows.append({
         "series": target, "transform": "pch", "pub_lag": 2,
-        "block_Global": 1, "block_Soft": 0,
+        "block_Global": 1, "block_Soft": 0, "group": "Target",
     })
 
     spec = pd.DataFrame(spec_rows).set_index("series")

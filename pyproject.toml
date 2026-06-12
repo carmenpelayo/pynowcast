@@ -4,25 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pynowcast"
-version = "1.0.0"
-description = "The ECB Nowcasting Toolbox Python implementation"
+version = "1.2.0"
+description = "Python re-implementation of the ECB nowcasting toolbox (DFM, bridge equations, BVAR, news decomposition)"
 readme = "README.md"
 requires-python = ">=3.9"
-license = { file = "LICENSE" }
-authors = [
-  { name = "Carmen Pelayo Fernández", email = "carmen.pelayo@bbva.com" }
-]
-dependencies = [
-  "pandas>=2.0",
-  "numpy>=1.24",
-  "scipy>=1.10",
-  "matplotlib>=3.7",
-  "openpyxl>=3.1"
-]
+dependencies = ["numpy>=1.24", "scipy>=1.10", "pandas>=2.0"]
 
-[project.urls]
-"Homepage" = "https://github.com/baptiste-meunier/Nowcasting_toolbox"
-"Repository" = "https://github.com/tu-usuario/nowcasting_toolbox_py"
+[project.optional-dependencies]
+full = ["matplotlib>=3.7", "openpyxl>=3.1"]
 
 [tool.setuptools.packages.find]
 include = ["pynowcast*"]

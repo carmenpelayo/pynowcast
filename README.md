@@ -13,8 +13,8 @@ between two data vintages ("news" decomposition).
 | Model | Reference | Notes |
 |---|---|---|
 | `DFM` | Banbura & Modugno (2014); blocks as in Delle Chiaie, Ferrara & Giannone (2022) | Mixed-frequency dynamic factor model estimated by EM with arbitrary missing data. Faithful re-implementation: Mariano–Murasawa tent aggregation, block structure, AR(1) idiosyncratic components, exact Kalman filter/smoother. |
-| `BridgeEquations` | Banbura, Belousova, Bodnar & Toth (2023) | Combination of per-indicator bridge equations; monthly series completed by AR(p)-BIC, equal or inverse-MSE weights. |
-| `BVAR` | inspired by Cimadomo, Giannone, Lenza, Monti & Sokol (2022) | *Simplified* quarterly Bayesian VAR (Minnesota prior via dummy observations, Banbura–Giannone–Reichlin 2010) with Gaussian conditioning on indicators observed within the quarter. Not the full mixed-frequency BVAR of the original paper. |
+| `BridgeEquations` | Banbura, Belousova, Bodnar & Toth (2023) | Combination of bridge equations: all combinations of 1–2 monthly + 0–1 quarterly regressors (n + C(n,2) equations and more), lagM/lagQ/lagY settings, dummy support, AR(p)-BIC completion of monthly series, equal or inverse-MSE weights. |
+| `BVAR` | Cimadomo, Giannone, Lenza, Monti & Sokol (2022) | **Blocking B-BVAR**: each monthly variable enters as three quarterly series (one per month of the quarter); Normal-Inverse-Wishart prior combining Minnesota and sum-of-coefficients priors via dummy observations (Banbura–Giannone–Reichlin 2010); ragged edge handled by Kalman filtering/smoothing with EM iterations (`bvar_thresh`/`bvar_max_iter`); exact news decomposition available. |
 
 Plus, as in the original toolbox:
 
@@ -26,7 +26,58 @@ Plus, as in the original toolbox:
   quarter the data are cut to what would actually have been available
   (using per-series publication lags), the model is re-estimated and the
   nowcast is compared with an AR(1) benchmark.
-- **`plots`** — news waterfall, nowcast-evolution and factor charts.
+- **`plots`** — news waterfall, nowcast-evolution, factor, heatmap,
+  contributions and alternative-range charts.
+
+## The three-step model-building approach (v1.1)
+
+The original toolbox organizes model creation along three steps, all now
+available in Python:
+
+**Step 1 — Variable pre-selection** (`preselect`, replacing
+`Variable_selection_vF.R`): ranks all candidate regressors by predictive
+power with three methods — Sure Independence Screening (Fan & Lv, 2008),
+the t-stat method of Bair et al. (2006) with four lags of the target, and
+Least-Angle Regression (Efron et al., 2004) — combined into a weighted
+score (higher weight on LARS, as in the paper's application), alongside
+each variable's frequency, publication lag and group. `apply_selection`
+restricts the dataset to the chosen variables (the `do_subset` option).
+
+**Step 2 — Model selection** (`random_search` = `do_loop = 1`,
+`custom_search` = `do_loop = 2`): evaluates many specifications
+out-of-sample in pseudo real time, drawing the estimation start, the
+variable subset and the model parameters at random within user bounds, and
+reports RMSE and FDA per horizon and month of the quarter in a tidy
+DataFrame (save it to Excel/CSV for inspection). Fixing the seed reproduces
+the same set of models (`Loop.do_random = 0`), e.g. to isolate the effect
+of a Covid correction.
+
+**Step 3 — Covid robustness** (`covid_correct`, same numbering as
+`do_Covid`): 0 = nothing; 1 = dummies for 2020 Q2 and Q3; 2 = delete
+observations from Feb. to Sep. 2020; 3 = outlier correction (median ± 4
+inter-quintile distances, replaced by NaN); 4 = dummies for 2020 Q1 and Q2.
+`custom_search(..., covid_methods=(0, 1, 2, 3))` compares corrections on
+identical specifications. A general `outlier_correct` is also available,
+and `BridgeEquations(dummies=[...])` reproduces the `Par.Dum` mechanism.
+
+## Policy outputs (v1.1)
+
+- **`confidence_bands`** — uncertainty bands à la Reifschneider & Tulip
+  (2019): rolling MAE of past pseudo-real-time predictions per horizon ×
+  month of quarter, adjusted for outliers as in ECB (2009); ±1 MAE is the
+  57.5% confidence interval. FDA over the same window gauges directional
+  uncertainty. Reuse a saved table (`do_mae = 0`) or recompute
+  (`do_mae = 1`).
+- **`contributions`** — approximate contributions of input variables (or
+  groups), proxied by the news from all releases over the past two years;
+  satisfies mean + Σ contributions = prediction exactly.
+- **`heatmap`** — z-scores of input variables (5-month smoothing for
+  monthly series per Mariano–Murasawa), by variable or by group.
+- **`share_of_available_data`** — fraction of the target quarter's monthly
+  observations already released.
+- **`alternative_range`** — predictions of alternative models obtained by
+  disconnecting one or two *groups* of variables (`do_range = 1`); groups
+  are set in the `group` column of the spec sheet.
 
 ## Installation
 
@@ -65,7 +116,33 @@ res = pn.evaluate(lambda: pn.DFM(factors={"Global": 1, "Soft": 1}, lags=2),
 print(pn.evaluation_summary(res))
 ```
 
+Model building and policy outputs:
+
+```python
+ranking  = pn.preselect(data)                          # step 1
+data_sel = pn.apply_selection(data, ranking.head(10).index)
+search   = pn.random_search(data_sel, "DFM", n_iter=100,
+                            start="2015Q1")            # step 2
+robust   = pn.custom_search(data_sel, [best_spec],
+                            covid_methods=(0, 1, 2, 3))  # step 3
+
+bands = pn.confidence_bands(model_factory, data, years=10)
+contr, mean = pn.contributions(model, data, period="2026Q2")
+pn.heatmap(data, by_group=True)
+pn.alternative_range(model_factory, data, period="2026Q2")
+pn.share_of_available_data(data.vintage("2026-05"), "2026Q2")
+```
+
 Run the full demo: `python examples/quickstart.py`.
+
+**Prefer a narrated, end-to-end walkthrough?** Open
+[`examples/nowcasting_walkthrough.ipynb`](examples/nowcasting_walkthrough.ipynb),
+a Jupyter notebook that follows the natural order of a forecasting
+exercise — data import, transformation (incl. Covid & outlier
+treatment), variable pre-selection, model selection, model fit,
+pseudo-real-time evaluation, and policy interpretation with all the
+plots — with markdown explaining what each step does and what you can
+configure.
 
 ## Input format
 
@@ -83,7 +160,10 @@ One Excel workbook (or three CSVs with a common prefix):
     becomes available at the end of May); used to build realistic
     pseudo-real-time vintages,
   - `block_<Name>` — 0/1 columns assigning series to factor blocks. A
-    "Global" block loaded by every series is enforced automatically.
+    "Global" block loaded by every series is enforced automatically,
+  - `group` — variable group (e.g. "Surveys", "Industry") used for news
+    aggregation, contributions, the heatmap and the range of alternative
+    models (distinct from factor blocks).
 
 `pynowcast.make_example_dataset()` generates a synthetic dataset (and the
 shipped `example_data/example_data.xlsx`) so everything runs out of the box.
@@ -113,6 +193,30 @@ the news decomposition follows Banbura & Modugno's Section 4.
   model.
 - Sensible defaults everywhere; every model exposes the same three calls:
   `fit(data)`, `nowcast(period=...)`, and works with `evaluate`.
+
+## Mapping to the original toolbox
+
+| Original (MATLAB / R) | pynowcast |
+|---|---|
+| `Variable_selection_vF.R` (SIS, t-stat, LARS) | `preselect`, `sis_rank`, `tstat_rank`, `lars_rank` |
+| `do_Covid = 0..4` | `covid_correct(data, method=0..4)` |
+| `do_subset` / `var_keep` | `apply_selection` |
+| `do_loop = 1` (random models) | `random_search` |
+| `do_loop = 2` (custom list, `alter_covid`) | `custom_search(..., covid_methods=...)` |
+| `do_range = 1` (disconnect groups) | `alternative_range` |
+| `do_mae = 1` (MAE/FDA over 10 years) | `confidence_bands` |
+| `common_heatmap` | `heatmap`, `plots.plot_heatmap` |
+| Contributions (news over 2 years) | `contributions` |
+| `common_eval_models` (RMSE/FDA, horizons, sub-periods) | `evaluate`, `evaluation_summary` |
+| News decomposition vs previous run | `news_decomposition` between any two vintages |
+| `BVAR_News_Mainfile` | `news_decomposition(bvar_model, ...)` -- same exact identity |
+| `Par.Dum` (BEQ dummies) | `BridgeEquations(dummies=[...])` |
+
+The one intentional simplification left: monthly indicators in the
+*bridge equations* are extrapolated with univariate AR-BIC instead of the
+auxiliary BVAR(6) (both are variants in Banbura et al., 2023). The B-BVAR
+itself needs no extrapolation -- the Kalman smoother conditions directly
+on the ragged edge.
 
 ## Testing
 

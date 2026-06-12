@@ -84,3 +84,73 @@ def plot_factors(model, data: NowcastData = None, ax=None):
     ax.set_title("Smoothed factors")
     ax.figure.tight_layout()
     return ax
+
+
+def plot_heatmap(data, last: int = 9, by_group: bool = False, ax=None):
+    """Heatmap of input-variable z-scores (red = below mean, blue = above,
+    grey = not yet released), as in the original toolbox."""
+    import matplotlib.pyplot as plt
+    from .policy import heatmap as _heatmap
+
+    z = _heatmap(data, last=last, by_group=by_group)
+    vals = z.drop(columns="group") if "group" in z.columns else z
+    if ax is None:
+        _, ax = plt.subplots(figsize=(0.9 * vals.shape[1] + 3,
+                                      0.32 * len(vals) + 1.2))
+    masked = vals.to_numpy(float)
+    im = ax.imshow(masked, cmap="RdBu", vmin=-2.5, vmax=2.5, aspect="auto")
+    ax.set_xticks(range(vals.shape[1]), vals.columns, rotation=45, ha="right")
+    ax.set_yticks(range(len(vals)), vals.index, fontsize=8)
+    for (i, j), v in __import__("numpy").ndenumerate(masked):
+        txt = "" if __import__("numpy").isnan(v) else f"{v:.1f}"
+        ax.text(j, i, txt, ha="center", va="center", fontsize=7)
+    ax.figure.colorbar(im, ax=ax, label="z-score", shrink=0.8)
+    ax.set_title("Heatmap of input variables (z-scores)")
+    ax.figure.tight_layout()
+    return ax
+
+
+def plot_range(range_table, point_history=None, ax=None):
+    """Strip plot of the range of alternative models around the main
+    prediction (cf. Figure 10 of the working paper)."""
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=(7, 4))
+    alt = range_table[range_table["excluded"] != "(none)"]
+    main = range_table.loc[range_table["excluded"] == "(none)", "prediction"]
+    x = np.random.default_rng(0).normal(0, 0.02, len(alt))
+    ax.scatter(x, alt["prediction"], alpha=0.45, s=60, label="alternative models")
+    if len(main):
+        ax.scatter([0], [float(main.iloc[0])], color="goldenrod", zorder=3,
+                   s=110, label="main model")
+    ax.set_xticks([])
+    ax.set_ylabel("prediction")
+    ax.set_title("Range of alternative models\n(excluding 1-2 groups of variables)")
+    ax.legend(frameon=False)
+    ax.figure.tight_layout()
+    return ax
+
+
+def plot_contributions(contrib, mean: float, ax=None):
+    """Bar chart of (approximate) contributions plus the model mean."""
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=(7, 4))
+    items = list(contrib.items())
+    labels = ["Mean"] + [k for k, _ in items] + ["Prediction"]
+    vals = [mean] + [v for _, v in items]
+    colors = ["grey"] + ["#2c7fb8" if v >= 0 else "#d7301f" for v in vals[1:]]
+    ax.bar(range(len(vals)), vals, color=colors)
+    total = float(np.nansum(vals))
+    ax.axhline(0, color="black", lw=0.8)
+    ax.bar([len(vals)], [total], color="black", alpha=0.85,
+           label=f"prediction = {total:+.2f}")
+    ax.set_xticks(range(len(vals) + 1), labels, rotation=30, ha="right")
+    ax.set_title("Approximate contributions to the prediction")
+    ax.legend(frameon=False)
+    ax.figure.tight_layout()
+    return ax

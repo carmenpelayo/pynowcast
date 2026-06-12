@@ -136,11 +136,14 @@ class DFM:
 
         # ---- blocks / layout
         blocks = data.blocks
-        block_names = list(blocks.columns)
+        # ignore blocks that no series loads on (e.g. after subsetting)
+        block_names = [b for b in blocks.columns if blocks[b].sum() > 0]
         if isinstance(self.factors, dict):
             r = {b: int(self.factors.get(b, 1)) for b in block_names}
         else:
             r = {b: int(self.factors) for b in block_names}
+        r = {b: k for b, k in r.items() if k > 0}
+        block_names = [b for b in block_names if b in r]
         self.layout_ = _Layout.build(block_names, r, self.lags,
                                      self.n_m_, self.n_q_)
         self.block_members_ = {
